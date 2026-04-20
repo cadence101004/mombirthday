@@ -92,49 +92,50 @@
       createCandles(candleCount);
 
       // === Microphone / Blow Detection ===
+      let blown = false;
+      let micStarted = false;
+
       async function startMicDetection() {
+        if (micStarted) return;
+        micStarted = true;
+
         try {
           const stream = await navigator.mediaDevices.getUserMedia({
             audio: true,
           });
+
           const audioContext = new (window.AudioContext ||
             window.webkitAudioContext)();
+
+          await audioContext.resume();
+
           const source = audioContext.createMediaStreamSource(stream);
           const analyser = audioContext.createAnalyser();
-          analyser.fftSize = 512;
+          analyser.fftSize = 256;
 
           source.connect(analyser);
 
-          const dataArray = new Uint8Array(analyser.frequencyBinCount);
-
-          let blown = false;
+          const dataArray = new Uint8Array(analyser.fftSize);
 
           function detectBlow() {
-            analyser.getByteFrequencyData(dataArray);
+            if (blown) return;
 
-            let highFreqSum = 0;
-            let lowFreqSum = 0;
+            analyser.getByteTimeDomainData(dataArray);
 
-            const midpoint = dataArray.length / 2;
+            let sum = 0;
 
             for (let i = 0; i < dataArray.length; i++) {
-              if (i < midpoint) {
-                lowFreqSum += dataArray[i];
-              } else {
-                highFreqSum += dataArray[i];
-              }
+              const normalized = (dataArray[i] - 128) / 128;
+              sum += normalized * normalized;
             }
 
-            const highAvg = highFreqSum / (dataArray.length / 2);
-            const lowAvg = lowFreqSum / (dataArray.length / 2);
+            const volume = Math.sqrt(sum / dataArray.length);
+            const BLOW_VOLUME_THRESHOLD = 0.18;
 
-            const ratio = highAvg / (lowAvg + 1);
-
-            const BLOW_RATIO_THRESHOLD = 0.5;
-
-            if (ratio > BLOW_RATIO_THRESHOLD && !blown) {
+            if (volume > BLOW_VOLUME_THRESHOLD) {
               blown = true;
               blowOutCandles();
+              return;
             }
 
             requestAnimationFrame(detectBlow);
@@ -166,7 +167,22 @@
         }, 1200);
       }
 
-      startMicDetection();
+      // Start mic only after first user interaction
+      document.addEventListener(
+        "click",
+        () => {
+          startMicDetection();
+        },
+        { once: true }
+      );
+
+      document.addEventListener(
+        "touchstart",
+        () => {
+          startMicDetection();
+        },
+        { once: true }
+      );
     </script>
   </body>
 </html>
